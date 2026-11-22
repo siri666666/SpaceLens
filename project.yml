@@ -1,0 +1,31 @@
+name: SpaceLens
+options:
+  bundleIdPrefix: com.siri666666
+  deploymentTarget:
+    iOS: "16.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    ENABLE_BITCODE: NO
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGNING_ALLOWED: NO
+    DEVELOPMENT_TEAM: ""
+    PROVISIONING_PROFILE_SPECIFIER: ""
+
+targets:
+  SpaceLens:
+    type: application
+    platform: iOS
+    sources:
+      - path: SpaceLens
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.siri666666.spacelens
+        PRODUCT_NAME: SpaceLens
+        INFOPLIST_FILE: SpaceLens/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"

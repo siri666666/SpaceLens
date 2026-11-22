@@ -1,0 +1,52 @@
+name: Build SpaceLens IPA
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: brew install xcodegen ldid
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build unsigned iOS app
+        run: |
+          xcodebuild clean build \
+            -project SpaceLens.xcodeproj \
+            -scheme SpaceLens \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CONFIGURATION_BUILD_DIR="$PWD/build"
+
+      - name: Sign with ldid and package TrollStore IPA
+        run: |
+          APP_PATH="$PWD/build/SpaceLens.app"
+          test -d "$APP_PATH"
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+
+          rm -rf Payload/SpaceLens.app/_CodeSignature
+          ldid -SEntitlements/App.entitlements Payload/SpaceLens.app/SpaceLens
+
+          zip -qry SpaceLens-TrollStore.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpaceLens-TrollStore-IPA
+          path: SpaceLens-TrollStore.ipa
