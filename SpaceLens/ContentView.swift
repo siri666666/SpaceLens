@@ -98,7 +98,7 @@ struct OverviewView: View {
             }
             .padding(.vertical, 4)
         } footer: {
-            Text("纯离线只读分析，不联网、不修改或删除任何文件。点任意条目可复制路径以便按需在系统或 Filza 中定位。")
+            Text("纯离线只读分析，点击图片/视频/音频/PDF/文本可直接打开预览，也可一键跳转 Filza 定位。")
         }
     }
 
@@ -162,7 +162,7 @@ struct OverviewView: View {
 
 struct CategoryDetailView: View {
     let summary: CategorySummary
-    @State private var copiedPath: String?
+    @State private var previewTarget: FilePreviewTarget?
 
     var body: some View {
         List {
@@ -176,18 +176,23 @@ struct CategoryDetailView: View {
                 }
             }
 
-            Section("体积 Top \(summary.topFiles.count)（仅展示 ≥ 1 MB，点击复制路径）") {
+            Section("体积 Top \(summary.topFiles.count)（点击直接预览，长按复制/在 Filza 打开）") {
                 if summary.topFiles.isEmpty {
                     Text("该分类下无 ≥ 1 MB 的文件")
                         .foregroundColor(.secondary)
                 } else {
                     ForEach(summary.topFiles) { file in
-                        FileRowView(file: file, copiedPath: $copiedPath)
+                        FileRowView(file: file) {
+                            previewTarget = FilePreviewTarget(id: file.path, name: file.name, path: file.path, size: file.size)
+                        }
                     }
                 }
             }
         }
         .navigationTitle(summary.category.rawValue)
+        .sheet(item: $previewTarget) { target in
+            FilePreviewSheet(target: target)
+        }
     }
 }
 
@@ -244,7 +249,7 @@ struct AppsStorageView: View {
 
 struct LargeFilesView: View {
     @ObservedObject var vm: SpaceLensViewModel
-    @State private var copiedPath: String?
+    @State private var previewTarget: FilePreviewTarget?
 
     var body: some View {
         NavigationView {
@@ -254,14 +259,19 @@ struct LargeFilesView: View {
                     Text(vm.isScanning ? "正在扫描大文件…" : "未发现 ≥ 20 MB 的大文件")
                         .foregroundColor(.secondary)
                 } else {
-                    Section("全机 ≥ 20 MB 大文件 Top \(files.count)（点击复制路径）") {
+                    Section("全机 ≥ 20 MB 大文件 Top \(files.count)（点击直接预览）") {
                         ForEach(files) { file in
-                            FileRowView(file: file, copiedPath: $copiedPath)
+                            FileRowView(file: file) {
+                                previewTarget = FilePreviewTarget(id: file.path, name: file.name, path: file.path, size: file.size)
+                            }
                         }
                     }
                 }
             }
             .navigationTitle("大文件排行")
+            .sheet(item: $previewTarget) { target in
+                FilePreviewSheet(target: target)
+            }
         }
         .navigationViewStyle(.stack)
     }
@@ -272,28 +282,26 @@ struct DirectoryBrowserView: View {
     let path: String
     @State private var items: [DirectoryItem] = []
     @State private var isLoading = true
-    @State private var copiedPath: String?
+    @State private var previewTarget: FilePreviewTarget?
 
     var body: some View {
         List {
             Section {
-                Button {
-                    UIPasteboard.general.string = path
-                    copiedPath = path
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(copiedPath == path ? "已复制当前目录路径" : "点击复制当前目录路径")
-                            .font(.caption)
-                            .foregroundColor(.blue)
-                        Text(path)
-                            .font(.caption2.monospaced())
-                            .foregroundColor(.secondary)
-                            .lineLimit(2)
+                HStack {
+                    Text(path)
+                        .font(.caption2.monospaced())
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                    Spacer()
+                    Button("Filza") {
+                        openInFilza(path: path)
                     }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.bordered)
                 }
             }
 
-            Section("子目录与文件（按体积降序）") {
+            Section("子目录与文件（点击文件直接预览，按体积降序）") {
                 if isLoading {
                     HStack {
                         ProgressView()
@@ -312,20 +320,33 @@ struct DirectoryBrowserView: View {
                             } label: {
                                 dirRow(item)
                             }
+                            .contextMenu {
+                                Button("在 Filza 中打开") { openInFilza(path: item.path) }
+                                Button("复制路径") { UIPasteboard.general.string = item.path }
+                            }
                         } else {
                             Button {
-                                UIPasteboard.general.string = item.path
-                                copiedPath = item.path
+                                previewTarget = FilePreviewTarget(id: item.path, name: item.name, path: item.path, size: item.size)
                             } label: {
                                 dirRow(item)
                             }
                             .foregroundColor(.primary)
+                            .contextMenu {
+                                Button("预览打开") {
+                                    previewTarget = FilePreviewTarget(id: item.path, name: item.name, path: item.path, size: item.size)
+                                }
+                                Button("在 Filza 中打开") { openInFilza(path: item.path) }
+                                Button("复制路径") { UIPasteboard.general.string = item.path }
+                            }
                         }
                     }
                 }
             }
         }
         .navigationTitle(title)
+        .sheet(item: $previewTarget) { target in
+            FilePreviewSheet(target: target)
+        }
         .onAppear {
             guard isLoading else { return }
             DispatchQueue.global(qos: .userInitiated).async {
@@ -342,16 +363,9 @@ struct DirectoryBrowserView: View {
         HStack(spacing: 10) {
             Image(systemName: item.isDirectory ? "folder.fill" : "doc.fill")
                 .foregroundColor(item.isDirectory ? .blue : .secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.name)
-                    .font(.subheadline)
-                    .lineLimit(1)
-                if copiedPath == item.path {
-                    Text("已复制路径")
-                        .font(.caption2)
-                        .foregroundColor(.green)
-                }
-            }
+            Text(item.name)
+                .font(.subheadline)
+                .lineLimit(1)
             Spacer()
             Text(ByteFormat.string(item.size))
                 .font(.caption.weight(.semibold).monospacedDigit())
@@ -362,13 +376,10 @@ struct DirectoryBrowserView: View {
 
 private struct FileRowView: View {
     let file: FileEntry
-    @Binding var copiedPath: String?
+    let onTap: () -> Void
 
     var body: some View {
-        Button {
-            UIPasteboard.general.string = file.path
-            copiedPath = file.path
-        } label: {
+        Button(action: onTap) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
                     Text(file.name)
@@ -388,14 +399,19 @@ private struct FileRowView: View {
                         .background(file.category.color.opacity(0.15))
                         .foregroundColor(file.category.color)
                         .cornerRadius(4)
-                    Text(copiedPath == file.path ? "已复制路径到剪贴板" : file.path)
+                    Text(file.path)
                         .font(.caption2)
-                        .foregroundColor(copiedPath == file.path ? .green : .secondary)
+                        .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
             }
             .padding(.vertical, 2)
+        }
+        .contextMenu {
+            Button("直接预览") { onTap() }
+            Button("在 Filza 中打开") { openInFilza(path: file.path) }
+            Button("复制路径") { UIPasteboard.general.string = file.path }
         }
     }
 }
